@@ -1,4 +1,80 @@
+# Modified schicluster Library
+
+
+
+This is a custom-modified version of the **schicluster** package, migrated and adapted from a high-performance computing environment.
+
+### Key Modifications
+
+1. **Version Control**: Detached from `setuptools_scm` (git-based versioning) and assigned a static version (0.1) for portability.
+2. **Environment Adaptation**: The `install_requires` list has been strictly updated to support modern Python data stacks, specifically adapting to **NumPy 2.x** and **SciPy 1.15+** APIs.
+3. **Entry Points**: Preserved standard console scripts (`hicluster`) to ensure command-line compatibility.
+
+------
+
+## Critical Dependency Updates
+
+This version is explicitly configured to work with the following **cutting-edge versions** of scientific libraries. *Note: These versions are significantly newer than the original package requirements to fix compatibility issues with Python 3.12+.*
+
+### `setup.py` Configuration
+
+The package requires the following minimum versions:
+
+Python
+
+```
+install_requires=[
+    'numpy>=2.0.1',        # Major update: handling new ABI and type promotion rules
+    'scipy>=1.15.3',       # API changes in sparse matrix handling
+    'scikit-learn>=1.8.0',
+    'h5py>=3.15.1',
+    'joblib>=1.5.3',
+    'clodius>=0.20.4',
+    'tables>=3.10.2',      # PyTables compatible with HDF5 newer versions
+    'cooler>=0.10.4',      # Essential for .mcool handling
+    'pandas>=2.3.3',       # Handling PyArrow backend integration
+    'statsmodels>=0.14.6',
+    'rpy2>=3.6.4',
+    'anndata>=0.12.7',
+    'xarray>=2025.12.0',   # Time-based versioning adaptation
+    'zarr>=2.18.7',
+    'numcodecs>=0.15.1',
+]
+```
+
+------
+
+## Installation
+
+Since this package is modified locally, it should be installed in **Editable Mode** to allow for further hot-fixes without re-installation.
+
+Run the following command. The `-e` flag is crucial.
+
+Bash
+
+```
+pip install -e .
+```
+
+*If you want to force the installation without checking dependencies (assuming the environment is already perfect):*
+
+Bash
+
+```
+pip install -e . --no-deps
+```
+
+------
+
+## Notes for Migration
+
+- **Conflict Warning**: Since `numpy>=2.0.1` is a major breaking change for many older bio-informatics tools, ensure that other tools in your environment (if any) are compatible with NumPy 2.0.
+- **Source**: The source code in this package reflects the state of the library as it was in `/opt/shared_env` at the time of migration.
+
+
+
 # scHiCluster
+
 ## Introduction
 scHiCluster is a comprehensive python package for single-cell chromosome contact data analysis. It includes the identification of cell types (clusters), loop calling in cell types, and domain and compartment calling in single cells.
 
@@ -100,7 +176,7 @@ The single cell compartment score is determined by average CpG density of intera
 To generate CpG density across the genome at certain bin size, use
 ```bash
 bedtools nuc -fi ${genome_fasta_file} -bed ${genome_bin_bed_file} -pattern CG -C > ${cpg_file}
-```  
+```
 To compute CpG compartment score and strength for a given cell, use
 ```bash
 hicluster comp-cpg-cell --indir ${impute_dir}/ --outdir ${impute_dir}/ --cell ${cell_id} --chrom ${chromosome} --mode ${impute_mode} --cpg_file ${cpg_file}
@@ -118,5 +194,5 @@ Shin, H., Shi, Y., Dai, C., Tjong, H., Gong, K., Alber, F., & Zhou, X. J. (2016)
 
 ### snm3C-seq data
 Lee, D. S., Luo, C., Zhou, J., Chandran, S., Rivkin, A., Bartlett, A., ... & Ecker, J. R. (2019). Simultaneous profiling of 3D genome structure and DNA methylation in single human cells. Nature methods, 16(10), 999-1006.
-  
+
 Liu, H., Zhou, J., Tian, W., Luo, C., Bartlett, A., Aldridge, A., ... & Ecker, J. R. (2020). DNA methylation atlas of the mouse brain at single-cell resolution. bioRxiv.
