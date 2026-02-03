@@ -18,7 +18,7 @@ def concat_cell(indir, chrom, mode, res, dist=10000000, save_raw=True, scale_fac
         chrom = chrom[3:]
 
     # TODO simplify file IO here
-    celllist = np.loadtxt(indir + '../cell_list.txt', dtype=np.str)
+    celllist = np.loadtxt(indir + '../cell_list.txt', dtype=str)
 
     f = h5py.File(indir + 'chr' + chrom + '/' + celllist[0] + '_chr' + chrom + '_' + mode + '.hdf5', 'r')
     ngene = f['Matrix'].attrs['shape'][0]

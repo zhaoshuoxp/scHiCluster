@@ -27,7 +27,7 @@ def merge_cell(indir,
         c = chrom
 
     thres = stats.norm(0, 1).isf(0.025)
-    celllist = np.loadtxt(indir + 'merged/' + cell_list, dtype=np.str)
+    celllist = np.loadtxt(indir + 'merged/' + cell_list, dtype=str)
     tot = len(celllist)
     Q = load_npz(indir + 'chr' + c + '/' + celllist[0] + '_chr' + c + '_' + impute_mode + '.npz')
     Qsum, Esum, Osum, Nsum, N2sum = [csr_matrix(Q.shape) for i in range(5)]

@@ -67,59 +67,24 @@ def read_single_cool_chrom(cool_path, chrom, chrom2=None):
 def chrom_sum_iterator(input_cool_list,
                        chrom_sizes,
                        chrom_offset, 
-                       total_cells,
-                       include_trans=False,
-                       ):
+                       total_cells):
     # Used in save_single_matrix_type, return the average over cells
     # total_cells need to be provided
     # Output chrom df
-    chunk_size = 5000000
-    cool = cooler.Cooler(str(input_cool_list[0]))
-    if cool.shape[0] < 100000:
-        matrix = cool.matrix(balance=False, sparse=True)[:]
+    for chrom in chrom_sizes.keys():
+        cool_path = input_cool_list[0]
+        matrix = read_single_cool_chrom(cool_path, chrom)
         for cool_path in input_cool_list[1:]:
-            cool = cooler.Cooler(str(cool_path))
-            matrix += cool.matrix(balance=False, sparse=True)[:]
+            matrix += read_single_cool_chrom(cool_path, chrom)
         matrix = matrix.tocoo()
-        df = pd.DataFrame({'bin1_id': matrix.row, 'bin2_id': matrix.col, 'count': matrix.data/total_cells})
-        df = df[df['bin1_id'] <= df['bin2_id']]
-        for i, chunk_start in enumerate(range(0, df.shape[0], chunk_size)):
-            chunk = df.iloc[chunk_start:chunk_start + chunk_size]
-            yield chunk
-    else:
-        for chrom in chrom_sizes.keys():
-            if include_trans:
-                for chrom2 in chrom_sizes.keys():
-                    if chrom_offset[chrom]>chrom_offset[chrom2]:
-                        continue
-                    cool_path = input_cool_list[0]
-                    matrix = read_single_cool_chrom(cool_path, chrom, chrom2)
-                    for cool_path in input_cool_list[1:]:
-                        matrix += read_single_cool_chrom(cool_path, chrom, chrom2)
-                    matrix = matrix.tocoo()
-                    pixel_df = pd.DataFrame({
-                        'bin1_id': matrix.row,
-                        'bin2_id': matrix.col,
-                        'count': matrix.data
-                    })
-                    pixel_df.iloc[:, 0] += chrom_offset[chrom]
-                    pixel_df.iloc[:, 1] += chrom_offset[chrom2]
-                    pixel_df.iloc[:, -1] /= total_cells
-                    yield pixel_df
-            else:
-                cool_path = input_cool_list[0]
-                matrix = read_single_cool_chrom(cool_path, chrom)
-                for cool_path in input_cool_list[1:]:
-                    matrix += read_single_cool_chrom(cool_path, chrom)
-                matrix = matrix.tocoo()
-                pixel_df = pd.DataFrame({
-                    'bin1_id': matrix.row,
-                    'bin2_id': matrix.col,
-                    'count': matrix.data
-                })
-                pixel_df.iloc[:, :2] += chrom_offset[chrom]
-                pixel_df.iloc[:, -1] /= total_cells
-                yield pixel_df
+        pixel_df = pd.DataFrame({
+            'bin1_id': matrix.row,
+            'bin2_id': matrix.col,
+            'count': matrix.data
+        })
+        pixel_df.iloc[:, :2] += chrom_offset[chrom]
+        pixel_df.iloc[:, -1] /= total_cells
+        yield pixel_df
 
 
 def save_single_matrix_type(input_cool_list, 
@@ -127,30 +92,25 @@ def save_single_matrix_type(input_cool_list,
                             bins_df,
                             chrom_sizes,
                             chrom_offset,
-                            total_cells, 
-                            include_trans=False,
-                            ):
+                            total_cells):
     # Used by merge_group_chunks_to_group_cools and merge_cool
     # total_cells need to be provided
     # Output cool
     chrom_iter = chrom_sum_iterator(input_cool_list,
                                     chrom_sizes,
                                     chrom_offset,
-                                    total_cells,
-                                    include_trans,
-                                    )
-    ordered = (bins_df.shape[0]<100000) or (not include_trans)
+                                    total_cells)
     cooler.create_cooler(cool_uri=output_cool,
                          bins=bins_df,
                          pixels=chrom_iter,
-                         ordered=ordered,
+                         ordered=True,
                          dtypes={'count': np.float32})
     with h5py.File(output_cool, 'a') as f:
         f.attrs['group_n_cells'] = total_cells
     return
  
 
-def merge_cool(input_cool_tsv_file, output_cool, include_trans=False):
+def merge_cool(input_cool_tsv_file, output_cool):
     # Input could be cool files of single cell or average over cells
     # Output is average over cells
     # total_cell is counted over cools according to group_n_cells, otherwise 1
@@ -174,9 +134,7 @@ def merge_cool(input_cool_tsv_file, output_cool, include_trans=False):
                             bins_df,
                             chrom_sizes,
                             chrom_offset,
-                            total_cells,
-                            include_trans,
-                            )
+                            total_cells)
     return
 
 

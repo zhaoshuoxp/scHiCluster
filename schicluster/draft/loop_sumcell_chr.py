@@ -11,8 +11,8 @@ import pandas as pd
 from scipy import stats
 from scipy.sparse import save_npz, load_npz, csr_matrix, coo_matrix
 
-def loop_sumcell_chr(cell_list, outprefix, res, 
-    group_list=None, matrix='QEO', sum_only=False, test_only=False, 
+def loop_sumcell_chr(cell_list, outprefix, res,
+    group_list=None, matrix='QEO', sum_only=False, test_only=False,
     norm_mode='dist_trim', min_dist=50000, max_dist=10000000, pad=5, gap=2):
 
     def load_group_hdf(file):
@@ -27,23 +27,33 @@ def loop_sumcell_chr(cell_list, outprefix, res,
         f = h5py.File(f'{file}', 'w')
         g = f.create_group('Matrix')
         g.create_dataset('data', data=A.data, dtype='float32', compression='gzip')
-        g.create_dataset('indices', data=A.indices, dtype=int, compression='gzip') 
+        g.create_dataset('indices', data=A.indices, dtype=int, compression='gzip')
         g.create_dataset('indptr', data=A.indptr, dtype=int, compression='gzip')
         g.attrs['shape'] = A.shape
         g.attrs['count'] = tot
         f.close()
 
-    celllist = np.loadtxt(cell_list, dtype=np.str)
+    celllist = np.loadtxt(cell_list, dtype=str)
+    # Ensure celllist is iterable if only one cell
+    if celllist.ndim == 0:
+        celllist = np.array([celllist])
     tot = len(celllist)
 
     if not test_only:
-        thres = stats.norm(0, 1).isf(0.025) 
-        with h5py.File(f'{celllist[0]}.hdf5', 'r') as f:
-            dim1, dim2 = f['Matrix'].attrs['shape']
+        thres = stats.norm(0, 1).isf(0.025)
+        # Handle empty list case gracefully if needed, though upstream should prevent it
+        if tot > 0:
+            with h5py.File(f'{celllist[0]}.hdf5', 'r') as f:
+                dim1, dim2 = f['Matrix'].attrs['shape']
+        else:
+             print("Error: Cell list is empty.")
+             return
+
         Qsum, Esum, Osum = [csr_matrix((dim1, dim2)) for i in range(3)]
         start_time = time.time()
+        
         if group_list:
-            grouplist = np.loadtxt(group_list, dtype=np.str)
+            grouplist = np.loadtxt(group_list, dtype=str)
             for i, cell in enumerate(grouplist):
                 if 'Q' in matrix:
                     A, tmp = load_group_hdf(f'{cell}.hdf5')
@@ -56,21 +66,35 @@ def loop_sumcell_chr(cell_list, outprefix, res,
                     Osum += A
                 print('Merge', i, 'groups takes', time.time() - start_time, 'seconds')
         else:
+            loaded_count = 0
             for i, cell in enumerate(celllist):
-                if 'Q' in matrix:
-                    with h5py.File(f'{cell}.hdf5', 'r') as f:
-                        g = f['Matrix']
-                        Q = csr_matrix((g['data'][()], g['indices'][()], g['indptr'][()]), g.attrs['shape'])
-                    Qsum += Q
-                if ('E' in matrix) or ('O' in matrix):
-                    E = load_npz(f'{cell}_{norm_mode}.E.npz')
-                if 'E' in matrix:
-                    Esum += E
-                if 'O' in matrix:
-                    O = E.copy()
-                    O.data = (O.data > thres).astype(int)
-                    Osum += O
-                print('Merge', i, 'cells takes', time.time() - start_time, 'seconds')
+                try:
+                    if 'Q' in matrix:
+                        with h5py.File(f'{cell}.hdf5', 'r') as f:
+                            g = f['Matrix']
+                            Q = csr_matrix((g['data'][()], g['indices'][()], g['indptr'][()]), g.attrs['shape'])
+                        Qsum += Q
+                    if ('E' in matrix) or ('O' in matrix):
+                        # Fix: Ensure .toarray() is used if needed, though E is sparse here
+                        E = load_npz(f'{cell}_{norm_mode}.E.npz')
+                    if 'E' in matrix:
+                        Esum += E
+                    if 'O' in matrix:
+                        O = E.copy()
+                        O.data = (O.data > thres).astype(int)
+                        Osum += O
+                    
+                    loaded_count += 1
+                    if i % 100 == 0:
+                        print(f'Merged {i+1}/{tot} cells...', flush=True)
+                        
+                except Exception as e:
+                    print(f"Warning: Failed to merge cell {cell}: {e}")
+                    continue
+                    
+            print(f'Total successfully merged cells: {loaded_count}', flush=True)
+            print('Merge', i, 'cells takes', time.time() - start_time, 'seconds')
+
         if 'Q' in matrix:
             Qsum.data = Qsum.data / tot
             output(f'{outprefix}.hdf5', Qsum)
@@ -94,23 +118,42 @@ def loop_sumcell_chr(cell_list, outprefix, res,
         O, _ = load_group_hdf(f'{outprefix}.O.hdf5')
 
     start_time = time.time()
-    oefilter = np.logical_and(E > 0, O > 0.1)
+    oefilter = np.logical_and(E > 0, O > 0.005)
     loop = np.where(oefilter)
     distfilter = np.logical_and((loop[1] - loop[0]) > (min_dist / res), (loop[1] - loop[0]) < (max_dist / res))
     loop = (loop[0][distfilter], loop[1][distfilter])
 
+    print(f"Found {len(loop[0])} candidate loops for testing.")
+
     start_time = time.time()
     eloop = np.zeros((len(celllist), len(loop[0])))
+    
+    loaded_count = 0
     for i, cell in enumerate(celllist):
-        eloop[i] = load_npz(f'{cell}_{norm_mode}.T.npz')[loop].A.ravel()
+        try:
+            # Fix: Replaced .A with .toarray()
+            eloop[i] = load_npz(f'{cell}_{norm_mode}.T.npz')[loop].toarray().ravel()
+            loaded_count += 1
+            if i % 100 == 0:
+                print(f'Loaded T-matrix for {i+1}/{tot} cells...', flush=True)
+        except Exception as e:
+            # If a file is missing here, it might just leave zeros, or we can warn
+            # print(f"Warning: Failed to load T.npz for {cell}: {e}")
+            pass
+
     print('Load', len(loop[0]), 'loop', time.time() - start_time)
 
     start_time = time.time()
-    pvr = np.array([stats.wilcoxon(xx, alternative='greater')[1] for xx in eloop.T])
-    pvt = stats.ttest_1samp(eloop, 0, axis=0)
-    pvt[1][pvt[0] > 0] *= 2
-    pvt[1][pvt[0] <= 0] = 1
-    pvt = pvt[1]
+    if eloop.shape[0] > 0 and eloop.shape[1] > 0:
+        pvr = np.array([stats.wilcoxon(xx, alternative='greater')[1] for xx in eloop.T])
+        pvt = stats.ttest_1samp(eloop, 0, axis=0)
+        pvt[1][pvt[0] > 0] *= 2
+        pvt[1][pvt[0] <= 0] = 1
+        pvt = pvt[1]
+    else:
+        pvr = np.array([])
+        pvt = np.array([])
+        
     print('Test loop', time.time() - start_time)
     del eloop
 
@@ -132,17 +175,23 @@ def loop_sumcell_chr(cell_list, outprefix, res,
     kernel_bu = np.ones((w, 3), np.float32)
     kernel_bu[(pad - gap):(pad + gap + 1), :] = 0
 
-    kernel_bl = kernel_bl / np.sum(kernel_bl)
-    kernel_donut = kernel_donut / np.sum(kernel_donut)
-    kernel_lr = kernel_lr / np.sum(kernel_lr)
-    kernel_bu = kernel_bu / np.sum(kernel_bu)
+    # Fix: Avoid division by zero in kernels
+    if np.sum(kernel_bl) > 0: kernel_bl = kernel_bl / np.sum(kernel_bl)
+    if np.sum(kernel_donut) > 0: kernel_donut = kernel_donut / np.sum(kernel_donut)
+    if np.sum(kernel_lr) > 0: kernel_lr = kernel_lr / np.sum(kernel_lr)
+    if np.sum(kernel_bu) > 0: kernel_bu = kernel_bu / np.sum(kernel_bu)
 
     Ebl = cv2.filter2D(E, -1, kernel=kernel_bl) * (E > 0)
     Edonut = cv2.filter2D(E, -1, kernel=kernel_donut) * (E > 0)
     Elr = cv2.filter2D(E, -1, kernel=kernel_lr) * (E > 0)
     Ebu = cv2.filter2D(E, -1, kernel=kernel_bu) * (E > 0)
 
-    data = pd.DataFrame(np.array([loop[0], loop[1], pvr, pvt, E[loop], Ebl[loop], Edonut[loop], Elr[loop], Ebu[loop]]).T, columns = ['x1', 'y1', 'rpv', 'tpv', 'E', 'E_bl', 'E_donut', 'E_h', 'E_v'])
+    if len(loop[0]) > 0:
+        data = pd.DataFrame(np.array([loop[0], loop[1], pvr, pvt, E[loop], Ebl[loop], Edonut[loop], Elr[loop], Ebu[loop]]).T, columns = ['x1', 'y1', 'rpv', 'tpv', 'E', 'E_bl', 'E_donut', 'E_h', 'E_v'])
+    else:
+        # Empty dataframe if no loops found
+        data = pd.DataFrame(columns = ['x1', 'y1', 'rpv', 'tpv', 'E', 'E_bl', 'E_donut', 'E_h', 'E_v'])
+
     data.to_hdf(f'{outprefix}.loop.hdf5', key='loop')
     print('Bulk bkg', time.time() - start_time)
 
@@ -166,7 +215,7 @@ parser.add_argument('--pad', type=int, default=5, help='One direction size of la
 parser.add_argument('--gap', type=int, default=2, help='One direction size of smaller square for donut background')
 opt = parser.parse_args()
 
-loop_sumcell_chr(opt.cell_list, opt.outprefix, opt.res, 
+loop_sumcell_chr(opt.cell_list, opt.outprefix, opt.res,
         opt.group_list, opt.matrix, opt.sum_only, opt.test_only,
         opt.norm_mode, opt.min_dist, opt.max_dist, opt.pad, opt.gap)
 '''

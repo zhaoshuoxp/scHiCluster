@@ -2,24 +2,45 @@ from setuptools import setup, find_packages
 
 setup(
     name='schicluster',
-    use_scm_version=True,
-    setup_requires=['setuptools_scm'],
-    author='Jingtian Zhou',
+    version='0.1', 
+
+    author='Jingtian Zhou (Modified by Quanyi Zhao)',
     author_email='jiz509@eng.ucsd.edu',
+    
     packages=find_packages(),
-    description='A package for single-cell Hi-C data clustering and downstream analysis.',
-    long_description=open('README.md').read(),
+    
+    description='Modified version of schicluster for migration.',
     license='MIT',
-    long_description_content_type='text/markdown',
     url='https://github.com/zhoujt1994/scHiCluster',
+    
     include_package_data=True,
-    install_requires=['numpy', 'scipy', 'scikit-learn', 'h5py', 'joblib', 'clodius',
-                      'tables', 'cooler', 'pandas', 'statsmodels', 'rpy2', 'anndata', 'xarray', 'zarr', 'numcodecs'],
+    
+install_requires=[
+    'numpy>=2.0.1',
+    'scipy>=1.15.3',
+    'scikit-learn>=1.8.0',
+    'h5py>=3.15.1',
+    'joblib>=1.5.3',
+    'clodius>=0.20.4',
+    'tables>=3.10.2',
+    'cooler>=0.10.4',
+    'pandas>=2.3.3',
+    'statsmodels>=0.14.6',
+    'rpy2>=3.6.4',
+    'anndata>=0.12.7',
+    'xarray>=2025.12.0',
+    'zarr>=2.18.7',
+    'numcodecs>=0.15.1',
+],
+    
     package_data={
         '': ['*.txt', '*.tsv', '*.csv', '*.fa', '*Snakefile', '*ipynb', '*R']
     },
+    
     entry_points={
-        'console_scripts': ['hicluster=schicluster.__main__:main',
-                            'hic-internal=schicluster._hicluster_internal:internal_main'],
+        'console_scripts': [
+            'hicluster=schicluster.__main__:main',
+            'hic-internal=schicluster._hicluster_internal:internal_main'
+        ],
     }
 )

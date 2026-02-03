@@ -335,7 +335,7 @@ def diff_dom(args):
     ngene = int(chromsize[c] / res) + 1
     bound = np.zeros((len(cluster), ngene))
     for i, cell in enumerate(domlist):
-        domain = np.loadtxt(cell, dtype=np.str)
+        domain = np.loadtxt(cell, dtype=str)
         C = domain[domain[:, -1] == 'domain', :2].astype(int) / res
         if len(C) > int(chromsize[c] / 10000000) + 1:
             bound[i, np.array(list(set(C.flatten())), dtype=int)] += 1

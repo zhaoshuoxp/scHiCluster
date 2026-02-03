@@ -415,19 +415,19 @@ def loop_mergechr_register_subparser(subparser):
     parser.add_argument('--res', type=int, default=10000,
                         help='Bin size as integer of loop calling')
 
-    parser.add_argument('--thres_bl', type=int, default=1.33,
+    parser.add_argument('--thres_bl', type=float, default=1.33,
                         help='Lowest fold change threshold against bottom left background')
 
-    parser.add_argument('--thres_d', type=int, default=1.33,
+    parser.add_argument('--thres_d', type=float, default=1.33,
                         help='Lowest fold change threshold against donut background')
 
-    parser.add_argument('--thres_h', type=int, default=1.2,
+    parser.add_argument('--thres_h', type=float, default=1.2,
                         help='Lowest fold change threshold against horizontal background')
 
-    parser.add_argument('--thres_v', type=int, default=1.2,
+    parser.add_argument('--thres_v', type=float, default=1.2,
                         help='Lowest fold change threshold against vertical background')
 
-    parser.add_argument('--fdr_thres', type=int, default=0.1,
+    parser.add_argument('--fdr_thres', type=float, default=0.1,
                         help='Highest t-test FDR threshold of loops')
 
     parser.add_argument('--dist_thres', type=int, default=20000,
@@ -737,9 +737,6 @@ def merge_cool_register_subparser(subparser):
                             '1. file_path. No header')
     parser_req.add_argument('--output_cool', type=str, default=None, required=True, 
                             help='Full path to output merged cool file')
-    parser.add_argument('--include_trans', dest='include_trans', action='store_true',
-                        help='Include trans-chromosomal contacts')
-    parser.set_defaults(include_trans=False)
 
 
 def filter_contacts_register_subparser(subparser):

@@ -9,7 +9,7 @@ from sklearn.decomposition import TruncatedSVD
 
 def embed_concatcell_chr(cell_list, outprefix, res, dist=10000000, save_raw=True, dim=50):
 
-	celllist = np.loadtxt(cell_list, dtype=np.str)
+	celllist = np.loadtxt(cell_list, dtype=str)
 
 	with h5py.File(celllist[0], 'r') as f:
 		ngene = f['Matrix'].attrs['shape'][0]

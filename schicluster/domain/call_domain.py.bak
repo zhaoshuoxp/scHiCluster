@@ -4,8 +4,6 @@ import numpy as np
 import pandas as pd
 from rpy2.rinterface_lib.embedded import RRuntimeError
 from rpy2.robjects import r, pandas2ri, numpy2ri
-from rpy2.robjects.conversion import localconverter
-from rpy2.robjects import default_converter
 from rpy2.robjects.packages import importr, isinstalled
 from rpy2.robjects.vectors import StrVector
 import cooler
@@ -15,21 +13,14 @@ import anndata
 import xarray as xr
 import subprocess
 import schicluster
-import sys
 
-# 屏蔽全局激活
-try:
-    pandas2ri.activate()
-except:
-    pass
-try:
-    numpy2ri.activate()
-except:
-    pass
+pandas2ri.activate()
+numpy2ri.activate()
 
 PACKAGE_DIR = pathlib.Path(schicluster.__path__[0])
 
 
+# check if some package is installed
 def install_r_package(name):
     if not isinstalled(name):
         utils = importr('utils')
@@ -38,18 +29,12 @@ def install_r_package(name):
 
 
 def domain_df_to_boundary(cool, total_results, resolution):
+    # aggr to 1D boundary record,
+    # 1 means either start or end of a domain,
+    # 2 means both start and end of two domains
     bins = cool.bins()[:]
     chrom_offset = get_chrom_offsets(bins)
-    
-    if total_results.empty:
-        return csr_matrix((bins.shape[0], 1), dtype=np.int16).T 
-
     use_results = total_results[total_results['name'] == 'domain']
-    
-    if use_results.empty:
-        bin_loc_data = np.zeros(bins.shape[0], dtype=np.int16)
-        return csr_matrix(bin_loc_data)
-
     bin_loc = use_results.iloc[:, [1, 2]].astype(int) // resolution
     bin_loc += use_results['chrom'].map(chrom_offset).values[:, None]
     bin_loc_data = np.zeros(bins.shape[0], dtype=np.int16)
@@ -65,23 +50,20 @@ def single_chrom_calculate_insulation_score(matrix, window_size=10, save_count=F
         score = np.ones((matrix.shape[0], 2))
     else:
         score = np.ones(matrix.shape[0])
-    
-    with np.errstate(divide='ignore', invalid='ignore'):
-        for i in range(1, matrix.shape[0]):
-            if i < w:
-                intra = (matrix[:i, :i].sum() +
-                         matrix[i:(i + w), i:(i + w)].sum()) / (i * (i + 1) / 2 +
-                                                                 (w * (w + 1) / 2))
-                inter = matrix[:i, i:(i + w)].sum() / (i * (i + w))
-            else:
-                intra = (matrix[(i - w):i, (i - w):i].sum() +
-                         matrix[i:(i + w), i:(i + w)].sum()) / (w * (w + 1))
-                inter = matrix[(i - w):i, i:(i + w)].sum() / (w * w)
-            if save_count:
-                score[i] = [inter, intra]
-            else:
-                val = inter / (inter + intra)
-                score[i] = val
+    for i in range(1, matrix.shape[0]):
+        if i < w:
+            intra = (matrix[:i, :i].sum() +
+                     matrix[i:(i + w), i:(i + w)].sum()) / (i * (i + 1) / 2 +
+                                                            (w * (w + 1) / 2))
+            inter = matrix[:i, i:(i + w)].sum() / (i * (i + w))
+        else:
+            intra = (matrix[(i - w):i, (i - w):i].sum() +
+                     matrix[i:(i + w), i:(i + w)].sum()) / (w * (w + 1))
+            inter = matrix[(i - w):i, i:(i + w)].sum() / (w * w)
+        if save_count:
+            score[i] = [inter, intra]
+        else:
+            score[i] = inter / (inter + intra)
     return score
 
 
@@ -91,65 +73,47 @@ def call_domain_and_insulation(cell_url,
                                window_size=10,
                                save_count=False):
     r.source(str(PACKAGE_DIR / 'domain/TopDom.R'))
-    
-    try:
-        pandas2ri.activate()
-    except:
-        pass
-    try:
-        numpy2ri.activate()
-    except:
-        pass
+    pandas2ri.activate()
+    numpy2ri.activate()
 
     def run_top_dom(matrix, bins):
         j = matrix.indices + 1
         p = matrix.indptr
         x = matrix.data
-        
-        with localconverter(default_converter + numpy2ri.converter + pandas2ri.converter):
-            result = r.RunTopDom(j, p, x, bins, window_size)
-            result = pd.DataFrame(result)
+        result = r.RunTopDom(j, p, x, bins, window_size)
+        result = pd.DataFrame(result)
         return result
 
     cool = cooler.Cooler(cell_url)
     total_domain_results = []
     total_insulation_score = []
-    
     for chrom in cool.chromnames:
         matrix = cool.matrix(balance=False, sparse=True).fetch(chrom).tocsc()
         bins = cool.bins().fetch(chrom).reset_index(drop=True)
         bins.columns = ["chr", "from.coord", "to.coord"]
-        
-        if (matrix.nnz < (matrix.shape[0] * matrix.shape[1] * 0.005)) or (matrix.shape[0] < 10):
+        if (matrix.nnz < (matrix.shape[0] * matrix.shape[1] * 0.001)) or (matrix.shape[0] < 10):
+            # skip if matrix is too less info or too small
             pass
         else:
             try:
-                raw_res = run_top_dom(matrix, bins)
-                if raw_res.shape[0] > 0:
-                    tmp = pd.DataFrame()
-                    tmp['chrom'] = [chrom] * len(raw_res)
-                    tmp['chromStart'] = raw_res.iloc[:, 0].values
-                    tmp['chromEnd'] = raw_res.iloc[:, 1].values
-                    tmp['name'] = raw_res.iloc[:, 2].values
-                    total_domain_results.append(tmp)
+                tmp = run_top_dom(matrix, bins).T
+                tmp[0] = chrom
+                total_domain_results.append(tmp)
             except RRuntimeError:
                 print('Got R error at', cell_url, chrom, matrix.shape, matrix.data.size, bins.shape)
-            except Exception as e:
-                print(f'Error processing {chrom} in {cell_url}: {e}')
-
         total_insulation_score.append(
             single_chrom_calculate_insulation_score(matrix, window_size, save_count))
-            
     if len(total_domain_results) == 0:
         total_domain_results = pd.DataFrame([], columns=['chrom', 'chromStart', 'chromEnd', 'name'])
     else:
-        total_domain_results = pd.concat(total_domain_results).reset_index(drop=True)
+        total_domain_results = pd.concat(total_domain_results).reset_index(
+            drop=True)
         total_domain_results.columns = ['chrom', 'chromStart', 'chromEnd', 'name']
-        
     domain_boundary = domain_df_to_boundary(cool, total_domain_results,
                                             resolution)
     insulation_score = np.concatenate(total_insulation_score, axis=0)
 
+    # save
     save_npz(f'{output_prefix}.boundary.npz', domain_boundary)
     np.savez(f'{output_prefix}.insulation.npz', insulation_score)
     return
@@ -157,17 +121,11 @@ def call_domain_and_insulation(cell_url,
 
 def aggregate_boundary(cell_table, temp_dir, bins, output_path):
     total_boundary = []
+
     for cell_id, cell_url in cell_table.items():
         boundary_path = f'{temp_dir}/{cell_id}.boundary.npz'
-        try:
-            total_boundary.append(load_npz(boundary_path))
-        except FileNotFoundError:
-            # Append empty row if missing
-            total_boundary.append(csr_matrix((1, len(bins)), dtype=np.int16))
-    
-    # 【关键修复】vstack 返回 COO 格式，需转为 CSR 才能被 AnnData 接受
-    total_boundary = vstack(total_boundary).tocsr()
-    
+        total_boundary.append(load_npz(boundary_path))
+    total_boundary = vstack(total_boundary)
     adata = anndata.AnnData(X=total_boundary,
                             obs=pd.DataFrame([], index=cell_table.index.tolist()),
                             var=bins)
@@ -179,23 +137,17 @@ def aggregate_insulation(cell_table, temp_dir, bins, output_path, save_count=Fal
     total_insulation = []
     for cell_id, cell_url in cell_table.items():
         insulation_path = f'{temp_dir}/{cell_id}.insulation.npz'
-        try:
-            total_insulation.append(np.load(insulation_path)['arr_0'][None,:])
-        except FileNotFoundError:
-            # Append NaN row if missing
-            total_insulation.append(np.full((1, len(bins)), np.nan))
-            
+        total_insulation.append(np.load(insulation_path)['arr_0'][None,:])
     total_insulation = np.concatenate(total_insulation, axis=0)
-    
     if save_count:
-        total_insulation = xr.DataArray(data=total_insulation, dims=['cell','bin','type'],
-                                        coords={'cell':('cell', cell_table.index),
-                                                'bin':('bin', bins.index),
+        total_insulation = xr.DataArray(data=total_insulation, dims=['cell','bin','type'], 
+                                        coords={'cell':('cell', cell_table.index), 
+                                                'bin':('bin', bins.index), 
                                                 'type':('type', ['inter','intra']),
-                                                'bin_chrom':('bin', bins['chrom']),
+                                                'bin_chrom':('bin', bins['chrom']), 
                                                 'bin_start':('bin', bins['start']),
-                                                'bin_end':('bin', bins['end'])
-                                                })
+                                                'bin_end':('bin', bins['end']) 
+                                        })
     else:
         total_insulation = pd.DataFrame(total_insulation,
                                         index=cell_table.index,
@@ -205,25 +157,10 @@ def aggregate_insulation(cell_table, temp_dir, bins, output_path, save_count=Fal
         total_insulation = xr.DataArray(total_insulation)
         for key in ['chrom', 'start', 'end']:
             total_insulation = total_insulation.assign_coords({f'bin_{key}': ('bin', bins[key])})
-    
-    # 修复 Categorical 索引问题
-    for coord in total_insulation.coords:
-        if total_insulation.coords[coord].dtype.name == 'category':
-            total_insulation.coords[coord] = total_insulation.coords[coord].astype(str)
-    
-    # 尝试使用 HDF5 引擎保存大文件 (>4GB)
-    print(f"Saving NetCDF file (Size approx {total_insulation.nbytes / 1e9:.2f} GB)...")
-    try:
-        # 优先使用 h5netcdf (NetCDF4)
-        total_insulation.to_netcdf(output_path, engine='h5netcdf')
-    except ImportError:
-        print("Warning: 'h5netcdf' engine not found. Trying 'netcdf4'...", file=sys.stderr)
-        try:
-            total_insulation.to_netcdf(output_path, engine='netcdf4')
-        except ImportError:
-            print("Warning: 'netcdf4' engine not found. Falling back to Scipy with 64-bit offset.", file=sys.stderr)
-            total_insulation.to_netcdf(output_path, engine='scipy', format='NETCDF3_64BIT')
-
+        # total_insulation.coords['bin_chrom'] = bins['chrom']
+        # total_insulation.coords['bin_start'] = bins['start']
+        # total_insulation.coords['bin_end'] = bins['end']
+    total_insulation.to_netcdf(output_path)
     return
 
 
@@ -233,6 +170,7 @@ def multiple_call_domain_and_insulation(cell_table_path,
                                         window_size=10,
                                         save_count=False,
                                         cpu=10):
+    # install R package Matrix
     install_r_package('Matrix')
 
     cell_table = pd.read_csv(cell_table_path,
@@ -244,6 +182,7 @@ def multiple_call_domain_and_insulation(cell_table_path,
     temp_dir = pathlib.Path(f'{output_prefix}_domain_temp')
     temp_dir.mkdir(exist_ok=True)
 
+    # calculate individual cells
     with ProcessPoolExecutor(cpu) as exe:
         future_dict = {}
         for cell_id, cell_url in cell_table.items():
@@ -260,12 +199,11 @@ def multiple_call_domain_and_insulation(cell_table_path,
 
         for future in as_completed(future_dict):
             cell_id = future_dict[future]
-            try:
-                future.result()
-            except Exception as e:
-                print(f"Error in cell {cell_id}: {e}")
+            print(f'{cell_id} finished.')
+            future.result()
 
-    # read bins
+    # read bins from one of the cooler file
+    # all cooler files should share the same bins
     cell_cool = cooler.Cooler(cell_table.iloc[0])
     bins = cell_cool.bins()[:]
 

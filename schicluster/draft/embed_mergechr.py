@@ -6,7 +6,7 @@ import numpy as np
 from sklearn.decomposition import TruncatedSVD
 
 def embed_mergechr(embed_list, outprefix, dim=20, norm_sig=True):
-	embedlist = np.loadtxt(embed_list, dtype=np.str)
+	embedlist = np.loadtxt(embed_list, dtype=str)
 	matrix_reduce = np.concatenate([np.load(x) for x in embedlist], axis=1)
 	if norm_sig:
 		matrix_reduce = matrix_reduce[1:] / matrix_reduce[0]

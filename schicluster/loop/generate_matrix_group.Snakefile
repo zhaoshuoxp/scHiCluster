@@ -18,7 +18,7 @@ if shuffle:
             expand('{group}/{group}.T.cool', group=groups),
             expand('{group}/{group}.T2.cool', group=groups)
         shell:
-            'rm -rf *_chunk* && touch finish'
+            'rm -rf *_chunk*'
 else:
     matrix_types = ['Q', 'Q2', 'E', 'E2', 'T', 'T2']
     rule summary:
@@ -28,7 +28,7 @@ else:
             expand('{group}/{group}.loop_summit.bedpe', group=groups),
             expand('{group}/{group}.Q.cool', group=groups)
         shell:
-            'rm -rf *_chunk* && touch finish'
+            'rm -rf *_chunk*'
 
 
 if not shuffle:
